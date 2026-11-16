@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "salt": "12a28e726bc55bfce5ba879b3ce0f589",
+  "ciphertext": "95686566dbec7c9f15fab35e25ad92664167d0f6bda128fd171eabe358f55c47",
+  "example": {
+    "original_message": "Meet me at library on Monday at 9am.",
+    "original_password": "040866"
+  }
+}
