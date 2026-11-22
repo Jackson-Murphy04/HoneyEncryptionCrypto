@@ -152,7 +152,3 @@ Completed in this repository:
 - [ ] Model non-uniform message probabilities and attacker side information.
 - [ ] Review formal honey-encryption constructions and compare the prototype against an authenticated-encryption baseline.
 - [ ] Explore grammar/semantic models and the challenges of extending to unrestricted English.
-
-## AI assistance
-
-AI assistance was used to help inspect the initial repository, develop the evaluation harness, generate plots and machine-readable results, and draft documentation. The team should review the code and results, rerun the experiments on its own machine, and describe its AI use accurately in the final report.
