@@ -1,0 +1,57 @@
+{
+  "experiment": "Honey Encryption structured-message distribution evaluation",
+  "generated_utc": "2026-11-22T03:21:01.899258+00:00",
+  "environment": {
+    "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "implementation": "CPython"
+  },
+  "parameters": {
+    "message_count": 112,
+    "seed_bits": 256,
+    "salt_bytes": 16,
+    "password_kdf": "PBKDF2-HMAC-SHA256",
+    "pbkdf2_iterations": 200000,
+    "derived_key_bytes": 32,
+    "expected_probability_per_message": 0.008928571428571428,
+    "seed_sampling": "secrets.token_bytes (OS-backed randomness)",
+    "wrong_password_sampling": "distinct 128-bit random suffixes; same ciphertext and salt",
+    "original_message_for_wrong_password_test": "Meet me at library on Monday at 9am.",
+    "correct_password_recovery_check": true
+  },
+  "random_seed_experiment": {
+    "trials": 1120000,
+    "expected_count_per_message": 10000.0,
+    "expected_probability": 0.008928571428571428,
+    "chi_square_statistic": 117.44420000000001,
+    "degrees_of_freedom": 111,
+    "chi_square_p_value": 0.3195491960859783,
+    "min_count": 9698,
+    "max_count": 10221,
+    "max_absolute_standardized_residual": 3.02,
+    "total_variation_distance": 0.004047321428571426,
+    "runtime_seconds": 0.6797713709999584
+  },
+  "wrong_password_experiment": {
+    "trials": 560,
+    "expected_count_per_message": 5.0,
+    "expected_probability": 0.008928571428571428,
+    "chi_square_statistic": 100.0,
+    "degrees_of_freedom": 111,
+    "chi_square_p_value": 0.7639388611275001,
+    "min_count": 1,
+    "max_count": 12,
+    "max_absolute_standardized_residual": 3.1304951684997055,
+    "total_variation_distance": 0.1625,
+    "runtime_seconds": 17.263390122000033
+  },
+  "total_runtime_seconds": 18.574979396999993,
+  "interpretation_notes": [
+    "A chi-square p-value is not the probability that the null hypothesis is true.",
+    "A large p-value means this sample did not provide evidence against a uniform categorical distribution; it does not prove uniformity.",
+    "The random-seed test directly samples the DTE decoder input space.",
+    "The wrong-password test samples random candidate passwords through the actual PBKDF2/XOR/decode path, with one fixed ciphertext and salt.",
+    "Random candidate passwords are not a model of human password choices or a targeted dictionary attack.",
+    "The 112-message space is small; a plausible-looking output is not evidence of security for unrestricted English."
+  ]
+}
