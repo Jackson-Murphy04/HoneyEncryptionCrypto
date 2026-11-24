@@ -1,0 +1,83 @@
+{
+  "experiment": "synthetic dictionary rank and wrong-guess output study",
+  "trials": 12,
+  "dictionary_size": 25,
+  "password_population": "uniformly sampled from an explicitly synthetic 25-entry list; not representative of real users",
+  "attacker_observation": "No verifier: every candidate produces a valid message; true rank is known only to the evaluator.",
+  "correct_recovery_checks": 12,
+  "mean_true_password_rank": 15,
+  "median_true_password_rank": 18.0,
+  "rank_histogram": {
+    "1": 1,
+    "2": 1,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0,
+    "7": 0,
+    "8": 0,
+    "9": 0,
+    "10": 0,
+    "11": 1,
+    "12": 0,
+    "13": 1,
+    "14": 1,
+    "15": 0,
+    "16": 0,
+    "17": 0,
+    "18": 2,
+    "19": 0,
+    "20": 2,
+    "21": 3,
+    "22": 0,
+    "23": 0,
+    "24": 0,
+    "25": 0
+  },
+  "wrong_guess_decoded_outputs": 168,
+  "distinct_wrong_guess_outputs": 89,
+  "wrong_guess_output_top_10": [
+    [
+      "Meet me at office on Wednesday at 9am.",
+      5
+    ],
+    [
+      "Meet me at park on Monday at 12pm.",
+      5
+    ],
+    [
+      "Meet me at cafe on Friday at 6pm.",
+      5
+    ],
+    [
+      "Meet me at park on Saturday at 6pm.",
+      4
+    ],
+    [
+      "Meet me at library on Friday at 3pm.",
+      4
+    ],
+    [
+      "Meet me at park on Wednesday at 6pm.",
+      4
+    ],
+    [
+      "Meet me at cafe on Friday at 3pm.",
+      4
+    ],
+    [
+      "Meet me at office on Monday at 6pm.",
+      4
+    ],
+    [
+      "Meet me at office on Friday at 9am.",
+      4
+    ],
+    [
+      "Meet me at cafe on Wednesday at 12pm.",
+      3
+    ]
+  ],
+  "runtime_seconds": 7.226808264999988,
+  "caveat": "This does not demonstrate that an attacker can identify the correct password. Without external validation or side information, the outputs have no correctness flag. Synthetic passwords are not a measured human distribution."
+}

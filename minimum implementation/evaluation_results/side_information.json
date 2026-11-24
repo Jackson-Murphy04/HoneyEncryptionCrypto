@@ -1,0 +1,43 @@
+{
+  "experiment": "structural side-information candidate reduction",
+  "message_count": 112,
+  "interpretation": "Counts compatible messages only; assumes a uniform prior and does not infer whether an observed decoy is true.",
+  "results": [
+    {
+      "known_fields": "none",
+      "candidate_messages_remaining": 112,
+      "candidate_fraction": 1.0,
+      "idealized_log2_search_space_bits": 6.807354922057604
+    },
+    {
+      "known_fields": "location",
+      "candidate_messages_remaining": 28,
+      "candidate_fraction": 0.25,
+      "idealized_log2_search_space_bits": 4.807354922057604
+    },
+    {
+      "known_fields": "day",
+      "candidate_messages_remaining": 16,
+      "candidate_fraction": 0.14285714285714285,
+      "idealized_log2_search_space_bits": 4.0
+    },
+    {
+      "known_fields": "time",
+      "candidate_messages_remaining": 28,
+      "candidate_fraction": 0.25,
+      "idealized_log2_search_space_bits": 4.807354922057604
+    },
+    {
+      "known_fields": "location+day",
+      "candidate_messages_remaining": 4,
+      "candidate_fraction": 0.03571428571428571,
+      "idealized_log2_search_space_bits": 2.0
+    },
+    {
+      "known_fields": "day+time",
+      "candidate_messages_remaining": 4,
+      "candidate_fraction": 0.03571428571428571,
+      "idealized_log2_search_space_bits": 2.0
+    }
+  ]
+}

@@ -1,31 +1,26 @@
-# Python CLI prototype and evaluation
+# Prototype and evaluation guide
 
-Python 3.10+ is required. The prototype uses the standard library. The evaluation script requires the packages in `requirements.txt`.
+Python 3.10+ is required. Install dependencies with `python -m pip install -r requirements.txt`.
 
-## Commands
-
-From this directory:
+## Original uniform prototype
 
 ```bash
 python honey.py messages
-python honey.py encrypt "Meet me at library on Monday at 9am." example.json
-python honey.py decrypt example.json
+python honey.py encrypt "Meet me at library on Monday at 9am." demo.json
+python honey.py decrypt demo.json
 python -m unittest -v
 python evaluate.py
 ```
 
-Passwords are prompted without echo. The CLI's JSON example record includes the original message and password in plaintext as teaching metadata. Decryption ignores that metadata. Use demo passwords only; the files are not secure storage. Output files must not already exist.
+The message set is 4 locations × 7 weekdays × 4 times = 112 sentences. The uniform DTE partitions the 256-bit seed space into 112 contiguous intervals. The password wrapper uses PBKDF2-HMAC-SHA256 (200,000 iterations), a 16-byte salt, and XOR. It intentionally has no password verifier or authentication tag. The CLI's example JSON includes the original plaintext and password as teaching metadata; this makes the record unsuitable for secure storage.
 
-## Message model and DTE
+## Extensions
 
-There are 4 locations × 7 days × 4 times = 112 equally weighted messages. Each message receives a contiguous interval in the 256-bit seed space. The encoder samples uniformly from the selected interval; the decoder maps every 32-byte seed to one sentence. Interval sizes differ by at most one because 112 does not evenly divide the seed space.
+- `weighted_dte.py`: an integer-weight DTE using a synthetic product prior over location, day, and time. It is currently a standalone DTE component and is **not wired into the password wrapper**.
+- `weighted_evaluate.py`: samples random 256-bit seeds and checks the weighted decoder against its declared target probabilities.
+- `attacks.py`: calculates exact candidate-set reductions from known fields and runs a small synthetic password-rank pilot. The pilot's candidate list is not a representative human-password dataset and has no attacker correctness oracle.
+- `baseline.py`: separate AES-256-GCM/scrypt authenticated-encryption comparison. A wrong password normally raises an authentication-tag failure; it does not generate decoys.
 
-## Password layer
+## Interpretation
 
-A 16-byte salt and PBKDF2-HMAC-SHA256 with 200,000 iterations derive a 32-byte mask. Encryption XORs this mask with the DTE seed; decryption XORs it again. No password verifier or authentication tag is present. Any password guess yields a supported sentence. This is an educational construction, not a reviewed production honey-encryption implementation.
-
-## Evaluation
-
-`evaluate.py` runs two separate experiments: (1) decoding uniformly sampled 256-bit seeds, and (2) decrypting one fixed ciphertext/salt using distinct random incorrect passwords. It records per-message frequencies, Pearson chi-square statistics, p-values, total variation distance, standardized residuals, and runtime. It writes JSON, CSV, Markdown, and PNG outputs to `evaluation_results/` by default. See the top-level README and the generated `evaluation_results/RESULTS.md` for measured results and caveats.
-
-The wrong-password experiment uses random high-entropy candidate passwords, not a human password distribution or a dictionary attack. A large chi-square p-value is not proof of uniformity or security. Every decoded output being a valid member of the bounded message set is guaranteed by the decoder and is not evidence of semantic plausibility.
+A decoder always returning one of 112 strings demonstrates format validity only. It does not prove contextual plausibility, indistinguishability, or security. The weighted seed experiment checks only the weighted DTE component, not an end-to-end weighted HE scheme. The XOR/PBKDF2 prototype is educational and unauthenticated. Do not use it for real secrets.
