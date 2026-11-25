@@ -214,27 +214,6 @@ genuine plaintext.
 \section{Discussion}
 \label{sec:discussion}
 
-This project illustrates that mapping every seed to a well-formed sentence
-is a weaker property than producing realistic or indistinguishable decoys.
-The quality of a DTE depends on the assumed message distribution, while
-side information can sharply reduce the candidate set. The experiments
-measure the implementation against its own finite, uniform or synthetic
-targets; they do not show that those targets represent real communication.
-
-Several limitations are important. The weighted prior is hand-authored and
-not trained on real data. The password-guessing pilot is small and synthetic.
-The prototype's PBKDF2/XOR layer has no authentication or integrity
-protection, and the project has not undergone formal cryptographic review.
-The supported plaintexts are limited to a small sentence template. The
-construction should therefore be treated as an educational artifact, not as
-a way to protect real data or passwords.
-
-Possible future work includes documenting a more realistic and ethically
-collected message distribution, evaluating a broader range of side
-information, connecting the weighted DTE to an end-to-end construction, and
-performing a more rigorous security analysis. Any such extension should
-preserve the distinction between format validity, statistical fit, and
-cryptographic security.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
