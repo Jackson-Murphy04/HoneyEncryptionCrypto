@@ -1,0 +1,242 @@
+\documentclass[sigconf,nonacm]{acmart}
+
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\setcopyright{none}
+
+\begin{document}
+
+\title{Honey Encryption for Structured English Messages}
+
+% TODO: Add author email addresses and Nidya's full name when available.
+\author{Jackson Murphy}
+\affiliation{%
+  \institution{Applied Cryptography}
+}
+
+\author{Kush Patel}
+\affiliation{%
+  \institution{Applied Cryptography}
+}
+
+\author{Mourtalla Diop}
+\affiliation{%
+  \institution{Applied Cryptography}
+}
+
+\author{Nidya}
+\affiliation{%
+  \institution{Applied Cryptography}
+}
+
+\begin{abstract}
+Honey encryption aims to make an incorrect decryption key produce a plausible
+message rather than an obvious error. This project explores that idea in a
+small, controlled setting: a prototype maps 256-bit seeds to one of 112
+structured meeting messages and uses a password-derived mask to protect the
+seed. We evaluate the uniform message encoder, a separate weighted encoder
+using a synthetic prior, and the behavior of incorrect passwords and simple
+side information. The results show that the encoders produce messages in the
+specified format and approximately follow their configured seed
+distributions. They do not establish that the outputs are indistinguishable
+from real messages or that the prototype is secure. This report describes the
+design, implementation, tests, results, limitations, and possible extensions.
+\end{abstract}
+
+\keywords{honey encryption, distribution-transforming encoder, cryptography, evaluation}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:introduction}
+
+Honey encryption is a cryptographic approach intended to change the outcome
+of password guessing: an incorrect password should yield a plausible-looking
+decoy rather than a clear failure. Its central challenge is constructing a
+distribution-transforming encoder (DTE) that maps messages to seeds in a way
+that reflects the expected message distribution
+\cite{juels2014honey}.
+
+This project studies that challenge in a deliberately restricted domain. The
+prototype supports 112 messages of the form
+\emph{``Meet me at [location] on [day] at [time].''} The project asks whether
+a DTE for this finite message set can produce correctly formatted outputs for
+arbitrary seeds, how closely sampled seeds follow the encoder's target
+distribution, and how known message fields reduce the set of possible
+messages.
+
+The project implements a uniform DTE and an additional weighted DTE based on
+a hand-authored synthetic prior. It also measures the output of the
+password-wrapped prototype under incorrect guesses and includes a separate
+authenticated-encryption baseline for contrast. Unlike work targeting
+general-language encryption or a deployed security construction, this is a
+small educational prototype with explicit assumptions and measured
+limitations. It does not claim formal honey-encryption security.
+
+\section{Background}
+\label{sec:background}
+
+\subsection{Honey encryption and distribution-transforming encoders}
+
+In honey encryption, a DTE encodes a message as a seed, and a password-based
+cryptographic layer protects that seed. Decryption with a wrong password
+produces a different seed, which the DTE decodes as another message. The
+intended benefit depends on decoy messages being plausible under a suitable
+message distribution; merely producing a string in the expected format is
+not enough \cite{juels2014honey}.
+
+This prototype uses a finite message space rather than unrestricted English.
+Its uniform DTE assigns equal target probability to each of the 112 supported
+sentences. The weighted extension uses synthetic integer weights over
+locations, weekdays, and times. Those weights are illustrative and were not
+learned from real communications.
+
+\subsection{Project resources}
+
+The project used the original honey-encryption publication as background
+\cite{juels2014honey}, the ACM Conference Proceedings Primary Article
+template for this report, and its own Python prototype, unit tests, and
+captured experiment outputs. The AES-GCM baseline is included to contrast
+authenticated encryption behavior; the GCM mode is specified by NIST
+\cite{nist2007gcm}. No real message corpus or human-password dataset was used.
+
+\section{System Design and Methodology}
+\label{sec:design}
+
+\subsection{Prototype architecture}
+
+The prototype has two main stages. First, the DTE encodes a supported
+plaintext sentence into a 256-bit seed. Second, the password layer derives a
+mask from the password and a random salt using PBKDF2-HMAC-SHA256 with
+200{,}000 iterations, then XORs the mask with the seed. Decryption derives
+the mask again, recovers a seed, and passes it to the DTE decoder. Because
+the decoder is defined over the seed space, a valid-length wrong password
+also decodes to one of the supported sentences.
+
+The weighted DTE is currently a standalone component and is not connected to
+the password wrapper. The AES-256-GCM/scrypt implementation is a separate
+baseline, not a component of the honey-encryption-inspired construction.
+Unlike the prototype's unauthenticated XOR layer, the baseline reports
+authentication failure when decryption uses an incorrect password.
+
+\subsection{Evaluation methodology}
+
+The evaluation covers several distinct questions:
+\begin{itemize}
+  \item Sample 1{,}120{,}000 uniformly random 256-bit seeds and compare the
+  uniform DTE output frequencies with the uniform target distribution.
+  \item Apply 560 distinct random incorrect-password guesses to one fixed
+  ciphertext and salt, then summarize the resulting message frequencies.
+  \item Sample 560{,}000 random seeds for the weighted DTE and compare the
+  observed frequencies with its declared synthetic target probabilities.
+  \item Count the messages compatible with selected known fields, and run a
+  small synthetic password-rank pilot.
+  \item Run unit tests for DTE boundaries, message round trips, serialization,
+  weighted-DTE behavior, and the authenticated-encryption baseline.
+\end{itemize}
+
+For distribution experiments, the project reports Pearson chi-square
+statistics, p-values, and total variation distance (TVD). These are
+descriptive sample comparisons, not security proofs. In particular, the
+incorrect-password experiment has an expected count of only five per message,
+so the chi-square approximation is fragile.
+
+\section{Implementation and Testing/Results}
+\label{sec:results}
+
+\subsection{Implementation}
+
+The uniform prototype defines four locations, seven weekdays, and four times,
+for a total of 112 structured sentences. The uniform encoder partitions the
+256-bit seed space into intervals corresponding to those messages. The
+password layer uses a 16-byte salt, PBKDF2-HMAC-SHA256 with 200{,}000
+iterations, and XOR; it does not provide an authentication tag or integrity
+protection.
+
+The extension adds an integer-weight DTE with a synthetic product prior,
+evaluation scripts, side-information counts, and a small synthetic
+dictionary pilot. A separate AES-256-GCM/scrypt baseline provides a
+conventional authenticated-encryption comparison. The included test suite
+checks the uniform and weighted encoder boundaries, round trips for all
+supported messages, probability normalization, JSON behavior, independence
+from teaching metadata, and authentication behavior of the baseline.
+
+\subsection{Test results}
+
+In the recorded test run, all 10 unit tests passed. Correct-password
+recovery also passed in the recorded incorrect-password experiment. The
+AES-GCM baseline recovered a message with the correct password and rejected
+an incorrect password through authentication failure. These tests establish
+expected behavior for the implementation; they do not establish cryptographic
+security.
+
+\subsection{Distribution and side-information results}
+
+Table~\ref{tab:distribution-results} summarizes the recorded distribution
+experiments. For random seeds, the uniform DTE produced a TVD of 0.004047
+from the uniform target. The weighted DTE produced a TVD of 0.005621 from
+its synthetic target. The corresponding p-values indicate that these samples
+did not provide evidence against their configured distributions; they are
+not proof that either target is realistic.
+
+\begin{table}[t]
+  \caption{Recorded seed-distribution experiment results.}
+  \label{tab:distribution-results}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Experiment & Trials & $\chi^2$ & $p$-value & TVD \\
+    \midrule
+    Uniform seeds & 1{,}120{,}000 & 117.444 & 0.319549 & 0.004047 \\
+    Weighted seeds & 560{,}000 & 111.004 & 0.482054 & 0.005621 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+For the 560 incorrect-password trials, the recorded chi-square statistic was
+100.000 with a p-value of 0.763939 and a TVD of 0.162500. This experiment
+used random high-entropy guesses against one fixed ciphertext and salt. It
+does not model human-selected passwords or a realistic attacker strategy,
+and its small expected count per message makes the chi-square approximation
+fragile.
+
+The supported-message space has 112 candidates when no fields are known.
+Knowing a location leaves 28 candidates; a day leaves 16; a time leaves 28;
+location and day together leave 4; and day and time together also leave 4.
+These are exact counts for the prototype's message model, but they do not
+identify which candidate is genuine.
+
+The synthetic dictionary pilot used 12 trials and a hand-written list of 25
+candidate passwords. It recorded a mean true-password rank of 10.25 and a
+median rank of 11. The list is not representative of human passwords, and
+the pilot offers no oracle for deciding whether a decrypted message is the
+genuine plaintext.
+
+\section{Discussion}
+\label{sec:discussion}
+
+This project illustrates that mapping every seed to a well-formed sentence
+is a weaker property than producing realistic or indistinguishable decoys.
+The quality of a DTE depends on the assumed message distribution, while
+side information can sharply reduce the candidate set. The experiments
+measure the implementation against its own finite, uniform or synthetic
+targets; they do not show that those targets represent real communication.
+
+Several limitations are important. The weighted prior is hand-authored and
+not trained on real data. The password-guessing pilot is small and synthetic.
+The prototype's PBKDF2/XOR layer has no authentication or integrity
+protection, and the project has not undergone formal cryptographic review.
+The supported plaintexts are limited to a small sentence template. The
+construction should therefore be treated as an educational artifact, not as
+a way to protect real data or passwords.
+
+Possible future work includes documenting a more realistic and ethically
+collected message distribution, evaluating a broader range of side
+information, connecting the weighted DTE to an end-to-end construction, and
+performing a more rigorous security analysis. Any such extension should
+preserve the distinction between format validity, statistical fit, and
+cryptographic security.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
