@@ -1,11 +1,14 @@
 """Reproducible distribution evaluation for the bounded honey-encryption demo.
 
-This is a statistical experiment, not a proof of honey-encryption security.
-Random seeds are sampled with Python's OS-backed secrets module. Wrong-password
-trials use distinct random candidate passwords and the prototype's real PBKDF2
-password-mask/decode path.
-"""
+By default sampling still uses Python's OS-backed `secrets` module. Pass
+`--seed N` to route sampling through a seeded `random.Random(N)` for an exactly
+reproducible run; the prototype's real PBKDF2/XOR/decode path is unchanged.
 
+Every run also reports a percentile-bootstrap confidence interval for the
+total-variation distance (TVD). The interval quantifies sampling uncertainty
+of the TVD *estimate*; it is not a test of equality with the uniform
+distribution — use the chi-square p-value for that.
+"""
 from __future__ import annotations
 
 import argparse
@@ -21,27 +24,66 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.stats import chisquare
 
 import honey
+from _eval_helpers import (
+    collect_git_info,
+    random_hex,
+    random_bytes,
+    reproducible_secrets,
+    seeded_rng,
+)
 
 
 DEFAULT_SEED_TRIALS = 1_120_000
 DEFAULT_WRONG_PASSWORD_TRIALS = 560
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "evaluation_results"
+DEFAULT_CI_LEVEL = 0.95
+DEFAULT_BOOTSTRAP_REPLICATES = 2000
 MESSAGE_INDEX = {message: index for index, message in enumerate(honey.MESSAGES)}
 
 
-def summarize(counts: Counter[int], trials: int) -> dict:
+def _tvd_ci(observed, trials, boot_rng, ci_level, n_boot):
+    """Percentile bootstrap CI for the TVD of the empirical distribution.
+
+    Uses multinomial resampling of the observed category counts. If the true
+    population is exactly uniform, the sample TVD is still positive because of
+    sampling noise, so this interval should be read alongside the chi-square
+    p-value rather than as a test of uniformity.
+    """
+    observed_arr = np.asarray(observed, dtype=np.int64)
+    n_categories = len(observed_arr)
+    uniform = 1.0 / n_categories
+    p_emp = observed_arr / trials
+    samples = np.empty(n_boot, dtype=np.float64)
+    for b in range(n_boot):
+        boot_counts = boot_rng.multinomial(trials, p_emp)
+        samples[b] = 0.5 * np.abs(boot_counts / trials - uniform).sum()
+    alpha = 1.0 - ci_level
+    return (
+        float(np.quantile(samples, alpha / 2)),
+        float(np.quantile(samples, 1 - alpha / 2)),
+    )
+
+
+def summarize(
+    counts: Counter[int],
+    trials: int,
+    boot_rng: np.random.Generator | None = None,
+    ci_level: float = DEFAULT_CI_LEVEL,
+    n_boot: int = DEFAULT_BOOTSTRAP_REPLICATES,
+) -> dict:
     expected = trials / honey.MESSAGE_COUNT
     observed = [counts.get(i, 0) for i in range(honey.MESSAGE_COUNT)]
     statistic, p_value = chisquare(observed, f_exp=[expected] * honey.MESSAGE_COUNT)
     residuals = [(value - expected) / math.sqrt(expected) for value in observed]
     absolute_errors = [abs(value - expected) for value in observed]
-    return {
+    summary = {
         "trials": trials,
         "expected_count_per_message": expected,
         "expected_probability": 1 / honey.MESSAGE_COUNT,
@@ -58,6 +100,16 @@ def summarize(counts: Counter[int], trials: int) -> dict:
         "standardized_residuals": residuals,
         "absolute_count_errors": absolute_errors,
     }
+    if boot_rng is not None and n_boot > 0:
+        lo, hi = _tvd_ci(observed, trials, boot_rng, ci_level, n_boot)
+        summary["tvd_ci_lower"] = lo
+        summary["tvd_ci_upper"] = hi
+        summary["tvd_ci_level"] = ci_level
+        summary["tvd_ci_method"] = (
+            "percentile bootstrap resampling from the empirical category distribution"
+        )
+        summary["tvd_bootstrap_replicates"] = n_boot
+    return summary
 
 
 def write_csv(path: Path, seed_summary: dict, wrong_summary: dict) -> None:
@@ -97,7 +149,14 @@ def plot_distribution(path: Path, title: str, summary: dict) -> None:
     plt.close()
 
 
-def run(seed_trials: int, wrong_trials: int, output: Path) -> dict:
+def run(
+    seed_trials: int,
+    wrong_trials: int,
+    output: Path,
+    seed: int | None = None,
+    ci_level: float = DEFAULT_CI_LEVEL,
+    n_boot: int = DEFAULT_BOOTSTRAP_REPLICATES,
+) -> dict:
     if seed_trials < honey.MESSAGE_COUNT:
         raise ValueError(f"seed trials must be at least {honey.MESSAGE_COUNT}")
     if wrong_trials < honey.MESSAGE_COUNT:
@@ -106,37 +165,42 @@ def run(seed_trials: int, wrong_trials: int, output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     started_all = time.perf_counter()
 
-    # Experiment A: sample the full 256-bit seed space using OS-backed entropy.
+    rng = seeded_rng(seed)
+    boot_rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
+
+    # Experiment A: sample the full 256-bit seed space.
     started = time.perf_counter()
     seed_counts: Counter[int] = Counter()
     for _ in range(seed_trials):
-        seed = secrets.token_bytes(honey.SEED_BYTES)
-        decoded = honey.decode(seed)
+        seed_bytes = random_bytes(rng, honey.SEED_BYTES)
+        decoded = honey.decode(seed_bytes)
         seed_counts[MESSAGE_INDEX[decoded]] += 1
     seed_runtime = time.perf_counter() - started
-    seed_summary = summarize(seed_counts, seed_trials)
+    seed_summary = summarize(
+        seed_counts, seed_trials, boot_rng=boot_rng, ci_level=ci_level, n_boot=n_boot
+    )
 
-    # Experiment B: encrypt one known message once, then try distinct random
-    # wrong passwords against that same salt/ciphertext. Candidate passwords
-    # are never saved; only decoded-message counts are retained.
+    # Experiment B: one fixed ciphertext, many distinct random wrong passwords.
     original_message = honey.MESSAGES[0]
     correct_password = "evaluation-only-correct-password"
-    record = honey.encrypt(original_message, correct_password)
-    record.pop("example", None)  # Do not retain the plaintext/password metadata.
+    with reproducible_secrets(rng):
+        record = honey.encrypt(original_message, correct_password)
+    record.pop("example", None)
     wrong_counts: Counter[int] = Counter()
     seen_candidates: set[str] = set()
     started = time.perf_counter()
     while len(seen_candidates) < wrong_trials:
-        candidate = "wrong-" + secrets.token_hex(16)
+        candidate = "wrong-" + random_hex(rng, 16)
         if candidate == correct_password or candidate in seen_candidates:
             continue
         seen_candidates.add(candidate)
         decoded = honey.decrypt(record, candidate)
         wrong_counts[MESSAGE_INDEX[decoded]] += 1
     wrong_runtime = time.perf_counter() - started
-    wrong_summary = summarize(wrong_counts, wrong_trials)
+    wrong_summary = summarize(
+        wrong_counts, wrong_trials, boot_rng=boot_rng, ci_level=ci_level, n_boot=n_boot
+    )
 
-    # Sanity-check the exact known-answer path outside the sampled wrong guesses.
     correct_recovery = honey.decrypt(record, correct_password) == original_message
     if not correct_recovery:
         raise AssertionError("Correct-password recovery failed")
@@ -153,9 +217,12 @@ def run(seed_trials: int, wrong_trials: int, output: Path) -> dict:
         wrong_summary,
     )
 
+    git_info = collect_git_info()
     result = {
         "experiment": "Honey Encryption structured-message distribution evaluation",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
+        "seed": seed,
+        "git": git_info,
         "environment": {
             "python": sys.version,
             "platform": platform.platform(),
@@ -169,23 +236,35 @@ def run(seed_trials: int, wrong_trials: int, output: Path) -> dict:
             "pbkdf2_iterations": honey.PBKDF2_ITERATIONS,
             "derived_key_bytes": honey.SEED_BYTES,
             "expected_probability_per_message": 1 / honey.MESSAGE_COUNT,
-            "seed_sampling": "secrets.token_bytes (OS-backed randomness)",
-            "wrong_password_sampling": "distinct 128-bit random suffixes; same ciphertext and salt",
+            "seed_sampling": (
+                "random.Random(seed).randbytes (seeded PRNG)" if seed is not None
+                else "secrets.token_bytes (OS-backed randomness)"
+            ),
+            "wrong_password_sampling": (
+                "distinct 128-bit suffixes from the seeded PRNG; same ciphertext and salt"
+                if seed is not None
+                else "distinct 128-bit random suffixes; same ciphertext and salt"
+            ),
             "original_message_for_wrong_password_test": original_message,
             "correct_password_recovery_check": correct_recovery,
+            "ci_level": ci_level,
+            "bootstrap_replicates": n_boot,
         },
         "random_seed_experiment": {
-            **{k: v for k, v in seed_summary.items() if k not in {"counts", "standardized_residuals", "absolute_count_errors"}},
+            **{k: v for k, v in seed_summary.items()
+               if k not in {"counts", "standardized_residuals", "absolute_count_errors"}},
             "runtime_seconds": seed_runtime,
         },
         "wrong_password_experiment": {
-            **{k: v for k, v in wrong_summary.items() if k not in {"counts", "standardized_residuals", "absolute_count_errors"}},
+            **{k: v for k, v in wrong_summary.items()
+               if k not in {"counts", "standardized_residuals", "absolute_count_errors"}},
             "runtime_seconds": wrong_runtime,
         },
         "total_runtime_seconds": time.perf_counter() - started_all,
         "interpretation_notes": [
             "A chi-square p-value is not the probability that the null hypothesis is true.",
             "A large p-value means this sample did not provide evidence against a uniform categorical distribution; it does not prove uniformity.",
+            "The TVD bootstrap CI quantifies sampling uncertainty of the TVD estimate. Under an exactly uniform population, the sample TVD is still positive, so this interval is not a test of uniformity.",
             "The random-seed test directly samples the DTE decoder input space.",
             "The wrong-password test samples random candidate passwords through the actual PBKDF2/XOR/decode path, with one fixed ciphertext and salt.",
             "Random candidate passwords are not a model of human password choices or a targeted dictionary attack.",
@@ -194,9 +273,18 @@ def run(seed_trials: int, wrong_trials: int, output: Path) -> dict:
     }
     (output / "results.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
+    if git_info.get("available"):
+        dirty_note = " (working tree dirty)" if git_info.get("dirty") else ""
+        git_line = (
+            f"Git commit: `{git_info['short_commit']}` on `{git_info['branch']}`{dirty_note}"
+        )
+    else:
+        git_line = "Git metadata unavailable (not a git checkout, or `git` not on PATH)."
+
     report = f"""# Experimental results
 
 Generated: {result['generated_utc']}
+{git_line}
 
 ## Configuration
 
@@ -207,6 +295,9 @@ Generated: {result['generated_utc']}
 - Random seed trials: {seed_trials:,}
 - Distinct incorrect-password trials: {wrong_trials:,}
 - Wrong-password test: one fixed ciphertext and salt; random unique candidate passwords
+- Seed value: {seed if seed is not None else "None (OS entropy)"}
+- TVD CI level: {ci_level:.0%}
+- Bootstrap replicates: {n_boot:,}
 
 ## Random 256-bit seed experiment
 
@@ -216,6 +307,7 @@ Generated: {result['generated_utc']}
 - Chi-square: {seed_summary['chi_square_statistic']:.3f} (df={seed_summary['degrees_of_freedom']})
 - p-value: {seed_summary['chi_square_p_value']:.6g}
 - Total variation distance from uniform: {seed_summary['total_variation_distance']:.6f}
+- TVD {ci_level:.0%} bootstrap CI: {seed_summary.get('tvd_ci_lower', float('nan')):.6f}–{seed_summary.get('tvd_ci_upper', float('nan')):.6f}
 - Maximum absolute standardized residual: {seed_summary['max_absolute_standardized_residual']:.3f}
 
 ## Incorrect-password experiment
@@ -226,16 +318,36 @@ Generated: {result['generated_utc']}
 - Chi-square: {wrong_summary['chi_square_statistic']:.3f} (df={wrong_summary['degrees_of_freedom']})
 - p-value: {wrong_summary['chi_square_p_value']:.6g}
 - Total variation distance from uniform: {wrong_summary['total_variation_distance']:.6f}
+- TVD {ci_level:.0%} bootstrap CI: {wrong_summary.get('tvd_ci_lower', float('nan')):.6f}–{wrong_summary.get('tvd_ci_upper', float('nan')):.6f}
 - Maximum absolute standardized residual: {wrong_summary['max_absolute_standardized_residual']:.3f}
 - Correct-password recovery check: {'PASS' if correct_recovery else 'FAIL'}
 
 ## Interpretation
 
-The chi-square test compares the observed counts with the uniform expectation of 1/{honey.MESSAGE_COUNT} per message. A large p-value means this sample did not provide evidence against the uniform model; it is not proof of uniformity. The random-seed experiment measures the DTE decoder directly. The incorrect-password experiment additionally depends on PBKDF2-derived masks and uses random high-entropy candidate passwords, not human-selected passwords or a realistic attacker dictionary.
+The chi-square test compares the observed counts with the uniform expectation of
+1/{honey.MESSAGE_COUNT} per message. A large p-value means this sample did not
+provide evidence against the uniform model; it is not proof of uniformity.
 
-Every output is guaranteed by the decoder to be one of the 112 supported sentences. This format-validity property is built into the bounded decoder and does not establish that the sentence is semantically plausible, indistinguishable from the original, or secure against side information. The small message space also means an incorrect password can produce the original sentence by chance.
+The bootstrap TVD confidence interval reflects sampling uncertainty of the TVD
+*estimate*. It is **not** a test that the true TVD equals zero: if the
+population is exactly uniform, the sample TVD is still positive because of
+sampling noise. Use the chi-square p-value for testing equality with uniform.
 
-See `results.json` for full parameters and statistics, `message_frequencies.csv` for per-message counts, and the PNG files for plots. Do not interpret a single experiment as a cryptographic security proof.
+The random-seed experiment measures the DTE decoder directly. The
+incorrect-password experiment additionally depends on PBKDF2-derived masks and
+uses random high-entropy candidate passwords, not human-selected passwords or a
+realistic attacker dictionary.
+
+Every output is guaranteed by the decoder to be one of the {honey.MESSAGE_COUNT}
+supported sentences. This format-validity property is built into the bounded
+decoder and does not establish that the sentence is semantically plausible,
+indistinguishable from the original, or secure against side information. The
+small message space also means an incorrect password can produce the original
+sentence by chance.
+
+See `results.json` for full parameters and statistics, `message_frequencies.csv`
+for per-message counts, and the PNG files for plots. Do not interpret a single
+experiment as a cryptographic security proof.
 """
     (output / "RESULTS.md").write_text(report, encoding="utf-8")
     return result
@@ -246,15 +358,44 @@ def main() -> None:
     parser.add_argument("--seed-trials", type=int, default=DEFAULT_SEED_TRIALS)
     parser.add_argument("--wrong-password-trials", type=int, default=DEFAULT_WRONG_PASSWORD_TRIALS)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Seed for a reproducible run (default: use OS entropy for sampling)",
+    )
+    parser.add_argument(
+        "--ci-level", type=float, default=DEFAULT_CI_LEVEL,
+        help="Confidence level for the TVD bootstrap interval (default: 0.95)",
+    )
+    parser.add_argument(
+        "--bootstrap-replicates", type=int, default=DEFAULT_BOOTSTRAP_REPLICATES,
+        help="Bootstrap replicates for the TVD confidence interval (0 disables)",
+    )
     args = parser.parse_args()
-    result = run(args.seed_trials, args.wrong_password_trials, args.output)
+    result = run(
+        args.seed_trials,
+        args.wrong_password_trials,
+        args.output,
+        seed=args.seed,
+        ci_level=args.ci_level,
+        n_boot=args.bootstrap_replicates,
+    )
     print(f"Results written to: {args.output}")
-    print(f"Seed experiment: chi-square={result['random_seed_experiment']['chi_square_statistic']:.3f}, "
-          f"p={result['random_seed_experiment']['chi_square_p_value']:.6g}, "
-          f"runtime={result['random_seed_experiment']['runtime_seconds']:.3f}s")
-    print(f"Wrong-password experiment: chi-square={result['wrong_password_experiment']['chi_square_statistic']:.3f}, "
-          f"p={result['wrong_password_experiment']['chi_square_p_value']:.6g}, "
-          f"runtime={result['wrong_password_experiment']['runtime_seconds']:.3f}s")
+    print(
+        f"Seed experiment: chi-square={result['random_seed_experiment']['chi_square_statistic']:.3f}, "
+        f"p={result['random_seed_experiment']['chi_square_p_value']:.6g}, "
+        f"TVD={result['random_seed_experiment']['total_variation_distance']:.6f} "
+        f"(CI {result['random_seed_experiment'].get('tvd_ci_lower', float('nan')):.6f}–"
+        f"{result['random_seed_experiment'].get('tvd_ci_upper', float('nan')):.6f}), "
+        f"runtime={result['random_seed_experiment']['runtime_seconds']:.3f}s"
+    )
+    print(
+        f"Wrong-password experiment: chi-square={result['wrong_password_experiment']['chi_square_statistic']:.3f}, "
+        f"p={result['wrong_password_experiment']['chi_square_p_value']:.6g}, "
+        f"TVD={result['wrong_password_experiment']['total_variation_distance']:.6f} "
+        f"(CI {result['wrong_password_experiment'].get('tvd_ci_lower', float('nan')):.6f}–"
+        f"{result['wrong_password_experiment'].get('tvd_ci_upper', float('nan')):.6f}), "
+        f"runtime={result['wrong_password_experiment']['runtime_seconds']:.3f}s"
+    )
 
 
 if __name__ == "__main__":

@@ -23,17 +23,20 @@ A separate AES-256-GCM/scrypt baseline is included solely to contrast convention
 │   ├── main.tex
 │   └── references.bib
 └── minimum implementation/
-    ├── honey.py                 # Original uniform DTE + PBKDF2/XOR CLI
-    ├── weighted_dte.py          # Synthetic integer-weight DTE
-    ├── evaluate.py              # Original uniform seed / random-wrong-password study
-    ├── weighted_evaluate.py     # Non-uniform DTE seed-distribution study
-    ├── attacks.py               # Side-information + synthetic dictionary pilot
-    ├── baseline.py              # AES-GCM/scrypt comparison
+    ├── honey.py                     # Original uniform DTE + PBKDF2/XOR CLI
+    ├── weighted_dte.py              # Synthetic integer-weight DTE
+    ├── evaluate.py                  # Uniform seed / random-wrong-password study
+    ├── weighted_evaluate.py         # Non-uniform DTE seed-distribution study
+    ├── attacks.py                   # Side-information + synthetic dictionary pilot
+    ├── baseline.py                  # AES-GCM/scrypt comparison
+    ├── pooled_wrong_password.py     # Pooled wrong-password experiment across many ciphertexts
+    ├── rebuild_reports.py           # Regenerate EXTENDED_RESULTS.md + README results table
+    ├── _eval_helpers.py             # Shared git / seeded-RNG helpers
     ├── test_honey.py
     ├── test_extensions.py
     ├── test_baseline.py
     ├── PROTOTYPE.md
-    └── evaluation_results/      # JSON, CSV, plots, and captured experiment outputs
+    └── evaluation_results/          # JSON, CSV, plots, and captured experiment outputs
 ```
 
 ## Setup
@@ -68,12 +71,27 @@ The expanded test suite checks uniform and weighted DTE boundaries, round trips 
 # Original uniform DTE / wrong random password experiment
 python evaluate.py
 
+# Same experiment, reproducible via a seeded PRNG for sampling
+python evaluate.py --seed 12345
+
+# Pooled wrong-password experiment across many ciphertexts
+python pooled_wrong_password.py --seed 12345
+
 # Synthetic non-uniform prior: default 560,000 random seeds
 python weighted_evaluate.py
 
 # Side-information counts and a small synthetic password-dictionary pilot
 python attacks.py --trials 12
+
+# Rebuild EXTENDED_RESULTS.md and the README results table from JSON
+python rebuild_reports.py
 ```
+
+`rebuild_reports.py` reads the JSON files under `evaluation_results/` and
+regenerates `EXTENDED_RESULTS.md` plus the `<!-- BEGIN GENERATED RESULTS -->` …
+`<!-- END GENERATED RESULTS -->` block in this README. Every displayed number is
+copied verbatim from a JSON file; missing JSONs are skipped and noted on stderr
+rather than filled with placeholders.
 
 The dictionary pilot is intentionally small because every guess performs PBKDF2. Its 25-entry candidate list is synthetic and is **not** representative of real user passwords. It measures true password ranks and the fact that every guess yields a message; it does not give the attacker an oracle for identifying the correct guess.
 
@@ -81,13 +99,31 @@ The dictionary pilot is intentionally small because every guess performs PBKDF2.
 
 The included `evaluation_results/` directory contains the exact output files. Selected measurements:
 
-| Experiment | Trials | Pearson chi-square (111 df) | p-value | TVD |
-|---|---:|---:|---:|---:|
-| Uniform random seeds | 1,120,000 | 117.444 | 0.319549 | 0.004047 |
-| Random incorrect passwords | 560 | 100.000 | 0.763939 | 0.162500 |
-| Weighted random seeds | 560,000 | 111.004 | 0.482054 | 0.005621 |
+<!-- BEGIN GENERATED RESULTS -->
+| Experiment | Trials | Pearson chi-square | df | p-value | TVD |
+|---|---:|---:|---:|---:|---:|
+| Uniform random seeds | 1,120,000 | 117.444 | 111 | 0.319549 | 0.004047 |
+| Random incorrect passwords (single ciphertext) | 560 | 100.000 | 111 | 0.763939 | 0.162500 |
+| Pooled wrong passwords (5 ciphertexts) | 100 | 128.480 | 111 | 0.122840 | 0.437500 |
+| Weighted random seeds | 560,000 | 102.215 | 111 | 0.712551 | 0.005248 |
 
-The original wrong-password experiment has an expected count of five per message, so the chi-square approximation is fragile. It also uses random high-entropy guesses against one fixed ciphertext/salt. The weighted-DTE experiment checks only whether a decoder follows its **hand-authored synthetic prior**; it is not evidence that the prior models real conversations.
+<!-- END GENERATED RESULTS -->
+
+`evaluate.py` and `pooled_wrong_password.py` additionally report a
+percentile-bootstrap confidence interval for the TVD, both in the per-run
+`results.json` / `pooled_wrong_password_results.json` and in the human-readable
+`RESULTS.md` written by `evaluate.py`. The interval quantifies sampling
+uncertainty of the TVD *estimate* — it is not a test of equality with uniform
+(the chi-square p-value plays that role).
+
+The original single-ciphertext wrong-password experiment has an expected count
+of five per message, so its chi-square approximation is fragile. It also uses
+random high-entropy guesses against one fixed ciphertext/salt. The weighted-DTE
+experiment checks only whether a decoder follows its **hand-authored synthetic
+prior**; it is not evidence that the prior models real conversations. The
+pooled wrong-password experiment targets that single-ciphertext limitation by
+pooling over many independent ciphertexts and reporting per-ciphertext
+dispersion as well as pooled outlier diagnostics.
 
 The structural side-information calculation is exact for the finite message set:
 
@@ -100,7 +136,8 @@ The structural side-information calculation is exact for the finite message set:
 | Location + day | 4 |
 | Day + time | 4 |
 
-These counts show how contextual knowledge reduces the candidate space. They do not alone show that an attacker can identify the genuine message.
+These counts show how contextual knowledge reduces the candidate space. They do
+not alone show that an attacker can identify the genuine message.
 
 ## Interpretation and limitations
 
