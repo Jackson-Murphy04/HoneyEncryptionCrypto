@@ -1,4 +1,4 @@
-% DRAFT: This report is a draft  and needs review if anyone available, you can also copy and paste this to overleaf to check the layout.
+% DRAFT: This report is a work in progress and needs review by the project team. You can also paste it into Overleaf to check the layout.
 \documentclass[sigconf,nonacm]{acmart}
 
 \settopmatter{printacmref=false}
@@ -9,14 +9,15 @@
 
 \title{Honey Encryption for Structured English Messages}
 
-% TODO: Add  email addresses and Nidya  full name when available, also finish discussion.
 \author{Jackson Murphy}
+\email{Jmurph91@vols.utk.edu}
 \affiliation{%
   \institution{Applied Cryptography}
   
 }
 
 \author{Kush Patel}
+\email{kpate139@vols.urtk.edu}
 \affiliation{%
   \institution{Applied Cryptography}
 }
@@ -27,6 +28,7 @@
 }
 
 \author{Nidya Vargas}
+\email{nvargas3@vols.utk.edu}
 \affiliation{%
   \institution{Applied Cryptography}
 }
@@ -112,8 +114,8 @@ plaintext sentence into a 256-bit seed. Second, the password layer derives a
 mask from the password and a random salt using PBKDF2-HMAC-SHA256 with
 200{,}000 iterations, then XORs the mask with the seed. Decryption derives
 the mask again, recovers a seed, and passes it to the DTE decoder. Because
-the decoder is defined over the seed space, a valid-length wrong password
-also decodes to one of the supported sentences.
+the decoder is defined over the seed space, any password guess for a
+structurally valid record also decodes to one of the supported sentences.
 
 The weighted DTE is currently a standalone component and is not connected to
 the password wrapper. The AES-256-GCM/scrypt implementation is a separate
@@ -129,6 +131,8 @@ The evaluation covers several distinct questions:
   uniform DTE output frequencies with the uniform target distribution.
   \item Apply 560 distinct random incorrect-password guesses to one fixed
   ciphertext and salt, then summarize the resulting message frequencies.
+  \item Pool 20 random incorrect-password guesses for each of five independent
+  ciphertexts, and report pooled and per-ciphertext diagnostics.
   \item Sample 560{,}000 random seeds for the weighted DTE and compare the
   observed frequencies with its declared synthetic target probabilities.
   \item Count the messages compatible with selected known fields, and run a
@@ -138,10 +142,13 @@ The evaluation covers several distinct questions:
 \end{itemize}
 
 For distribution experiments, the project reports Pearson chi-square
-statistics, p-values, and total variation distance (TVD). These are
-descriptive sample comparisons, not security proofs. In particular, the
-incorrect-password experiment has an expected count of only five per message,
-so the chi-square approximation is fragile.
+statistics, p-values, and total variation distance (TVD). The updated
+evaluation scripts can also report bootstrap confidence intervals for TVD.
+These are descriptive sample comparisons, not security proofs. The original
+incorrect-password experiment has an expected count of five per message, and
+the pooled experiment has fewer than one expected count per message; the
+chi-square approximations are therefore fragile, especially for the pooled
+experiment.
 
 \section{Implementation and Testing/Results}
 \label{sec:results}
@@ -174,10 +181,10 @@ security.
 
 \subsection{Distribution and side-information results}
 
-Table~\ref{tab:distribution-results} summarizes the recorded distribution
-experiments. For random seeds, the uniform DTE produced a TVD of 0.004047
-from the uniform target. The weighted DTE produced a TVD of 0.005621 from
-its synthetic target. The corresponding p-values indicate that these samples
+Table~\ref{tab:distribution-results} summarizes the recorded seed
+distribution experiments. For random seeds, the uniform DTE produced a TVD
+of 0.004047 from the uniform target. The weighted DTE produced a TVD of
+0.005248 from its synthetic target. The p-values indicate that these samples
 did not provide evidence against their configured distributions; they are
 not proof that either target is realistic.
 
@@ -189,7 +196,7 @@ not proof that either target is realistic.
     Experiment & Trials & $\chi^2$ & $p$-value & TVD \\
     \midrule
     Uniform seeds & 1{,}120{,}000 & 117.444 & 0.319549 & 0.004047 \\
-    Weighted seeds & 560{,}000 & 111.004 & 0.482054 & 0.005621 \\
+    Weighted seeds & 560{,}000 & 102.215 & 0.712551 & 0.005248 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -208,14 +215,52 @@ These are exact counts for the prototype's message model, but they do not
 identify which candidate is genuine.
 
 The synthetic dictionary pilot used 12 trials and a hand-written list of 25
-candidate passwords. It recorded a mean true-password rank of 10.25 and a
-median rank of 11. The list is not representative of human passwords, and
-the pilot offers no oracle for deciding whether a decrypted message is the
-genuine plaintext.
+candidate passwords. The currently recorded run had a mean true-password
+rank of 15 and a median rank of 18. The list is not representative of human
+passwords, and the pilot offers no oracle for deciding whether a decrypted
+message is the genuine plaintext.
+
+\subsection{Pooled incorrect-password experiment}
+
+The pooled experiment applied 20 random incorrect-password guesses to each
+of five independent ciphertexts, for 100 guesses total. Its pooled TVD from
+uniform was 0.437500, with a 95\% ciphertext-cluster bootstrap interval of
+0.437500--0.732143. Per-ciphertext TVD ranged from 0.8304 to 0.8571, with a
+median of 0.8393. These empirical estimates are strongly affected by the
+small sample size; they do not establish that the underlying wrong-guess
+distribution differs from uniform.
+
+The pooled chi-square statistic was 128.480 ($p=0.122840$), but the uniform
+expected count was only about 0.89 per message. The chi-square approximation
+is consequently unreliable here, and the p-value should not be treated as
+evidence that wrong-password outputs are uniformly distributed. The
+cluster-bootstrap interval also rests on only five ciphertexts and is
+imprecise. Random guesses are not a model of targeted password guessing.
 
 \section{Discussion}
 \label{sec:discussion}
 
+This project illustrates that mapping every seed to a well-formed sentence
+is a weaker property than producing realistic or indistinguishable decoys.
+The quality of a DTE depends on the assumed message distribution, while
+side information can sharply reduce the candidate set. The experiments
+measure the implementation against its finite, uniform or synthetic targets;
+they do not show that those targets represent real communication.
+
+Several limitations are important. The weighted prior is hand-authored and
+not trained on real data. The password-guessing pilots are small and
+synthetic. The prototype's PBKDF2/XOR layer has no authentication or
+integrity protection, and the project has not undergone formal cryptographic
+review. The supported plaintexts are limited to a small sentence template.
+The construction should therefore be treated as an educational artifact,
+not as a way to protect real data or passwords.
+
+Possible future work includes documenting a more realistic and ethically
+collected message distribution, evaluating a broader range of side
+information, connecting the weighted DTE to an end-to-end construction, and
+performing a more rigorous security analysis. Any such extension should
+preserve the distinction between format validity, statistical fit, and
+cryptographic security.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
